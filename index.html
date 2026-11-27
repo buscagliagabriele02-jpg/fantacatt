@@ -420,27 +420,56 @@ let TR = null;
 function transfers() {
   if (TR) return TR;
   for (const t of D.teams) { t.in.forEach(m => m.n = fullName(t.id, m.n, 'in')); t.out.forEach(m => m.n = fullName(t.id, m.n, 'out')); }
-  const oldAt = {}, newAt = {};
-  for (const id in OLD) for (const [r, n0, c] of OLD[id].p) { const n = oldName(n0); (oldAt[norm(n)] ??= []).push({id, r, n, c}); }
-  for (const t of D.teams) for (const p of t.players) (newAt[norm(p.n)] ??= []).push({id: t.id, p});
-  const usedIn = {}, usedOut = {}, list = [];
-  D.teams.forEach(t => { usedIn[t.id] = new Set(); usedOut[t.id] = new Set(); });
-  for (const t of D.teams) for (const p of t.players) {
-    const o = oldAt[norm(p.n)] || [];
-    if (o.some(x => x.id === t.id)) continue; // confermato
-    const from = o.find(x => !(newAt[norm(p.n)] || []).some(y => y.id === x.id)) || o[0];
-    const mi = matchMove(t.in, usedIn[t.id], p.n);
-    let mo = null; if (from && usedOut[from.id]) { const ft = team(from.id); if (ft) mo = matchMove(ft.out, usedOut[from.id], p.n); }
-    list.push({k: from ? 'x' : 'n', r: p.r, n: p.n, from: from?.id || null, to: t.id, v: mi ? mi.v : null, got: mo ? mo.v : null, c0: from?.c ?? null, c1: p.c});
+  // proprietà: chi ha il giocatore in rosa, salvo che sia nei "Prestiti" di un'altra squadra (proprietaria)
+  const own = (rosters, loans) => {
+    const E = [];
+    for (const id in rosters) for (const x of rosters[id]) E.push({...x, key: norm(x.n), owner: id, holder: id});
+    for (const id in loans) for (const n0 of loans[id]) {
+      const k = norm(n0), e = E.find(x => x.key === k && x.holder !== id && x.owner === x.holder) || E.find(x => x.key === k && x.holder !== id);
+      if (e) e.owner = id; else E.push({n: n0, r: null, c: null, key: k, owner: id, holder: null});
+    }
+    const by = {}; for (const e of E) (by[e.key] ??= []).push(e);
+    return {E, by};
+  };
+  const oR = {}, oL = {}, nR = {}, nL = {};
+  for (const id in OLD) { oR[id] = OLD[id].p.map(([r, n0, c]) => ({r, n: oldName(n0), c})); oL[id] = (OLD[id].l || []).map(oldName); }
+  for (const t of D.teams) { nR[t.id] = t.players.map(p => ({r: p.r, n: p.n, c: p.c})); nL[t.id] = t.loans || []; }
+  const O = own(oR, oL), N = own(nR, nL);
+  const usedIn = {}, usedOut = {}, list = [], kept = {};
+  D.teams.forEach(t => { usedIn[t.id] = new Set(); usedOut[t.id] = new Set(); kept[t.id] = []; });
+  const tIn = id => team(id)?.in || [], tOut = id => team(id)?.out || [];
+  for (const e of N.E) {
+    const o = O.by[e.key] || [];
+    const same = o.find(x => x.owner === e.owner);
+    if (same) { kept[e.owner]?.push({...e, c0: same.c}); continue; } // confermato
+    const newOwners = (N.by[e.key] || []).map(y => y.owner);
+    const from = o.find(x => !newOwners.includes(x.owner)) || o[0];
+    const mi = usedIn[e.owner] ? matchMove(tIn(e.owner), usedIn[e.owner], e.n) : null;
+    const mo = from && usedOut[from.owner] ? matchMove(tOut(from.owner), usedOut[from.owner], e.n) : null;
+    const r = e.r || from?.r || dbMap[e.n.toLowerCase()]?.[0] || '·';
+    list.push({k: from ? 'x' : 'n', r, n: e.n, from: from?.owner || null, to: e.owner, v: mi ? mi.v : null, got: mo ? mo.v : null, c0: from?.c ?? null, c1: e.c,
+      loanTo: e.holder && e.holder !== e.owner ? e.holder : null});
   }
-  for (const id in OLD) for (const [r, n0, c] of OLD[id].p) { const n = oldName(n0);
-    if ((newAt[norm(n)] || []).length) continue;
-    const ft = team(id); const mo = ft ? matchMove(ft.out, usedOut[id], n) : null;
-    list.push({k: 'o', r, n, from: id, to: null, v: null, got: mo ? mo.v : null, c0: c, c1: null});
+  for (const e of O.E) {
+    if ((N.by[e.key] || []).length) continue;
+    const mo = usedOut[e.owner] ? matchMove(tOut(e.owner), usedOut[e.owner], e.n) : null;
+    list.push({k: 'o', r: e.r || dbMap[e.n.toLowerCase()]?.[0] || '·', n: e.n, from: e.owner, to: null, v: null, got: mo ? mo.v : null, c0: e.c, c1: null,
+      loanTo: e.holder && e.holder !== e.owner ? e.holder : null});
   }
+  // movimenti in entrata su giocatori rimasti nella stessa squadra: rinnovi / riacquisti
+  const renew = {};
+  for (const t of D.teams) { renew[t.id] = [];
+    t.in.forEach((m, i) => { if (usedIn[t.id].has(i)) return; const k = norm(m.n), fw = k.split(/[\s.]/)[0];
+      const p = kept[t.id].find(x => x.key === k || x.key.split(/[\s.]/)[0] === fw); if (p) { usedIn[t.id].add(i); renew[t.id].push({...p, v: m.v}); } }); }
+  // uscite su giocatori che la squadra aveva solo in prestito: prestito terminato
+  const back = {};
+  for (const t of D.teams) { back[t.id] = [];
+    t.out.forEach((m, i) => { if (usedOut[t.id].has(i)) return; const k = norm(m.n), fw = k.split(/[\s.]/)[0];
+      const e = O.E.find(x => x.holder === t.id && x.owner !== t.id && (x.key === k || x.key.split(/[\s.]/)[0] === fw));
+      if (e) { usedOut[t.id].add(i); back[t.id].push({...e, v: m.v}); } }); }
   const rest = {};
   for (const t of D.teams) rest[t.id] = {in: t.in.filter((m, i) => !usedIn[t.id].has(i)), out: t.out.filter((m, i) => !usedOut[t.id].has(i))};
-  return TR = {list, rest};
+  return TR = {list, rest, renew, back};
 }
 const KIND = {x: 'Scambi', n: 'Nuovi', o: 'Usciti'};
 function trow(m, focus) {
@@ -450,7 +479,8 @@ function trow(m, focus) {
   const main = m.k === 'o' ? (m.got != null ? eur(m.got) : '–') : (m.v != null ? eur(m.v) : '–');
   const lab = m.k === 'o' ? 'incasso' : (m.v != null ? 'trasferimento' : 'valore non indicato');
   const tg = focus ? (m.to === focus ? '<span class="tag in">arrivo</span> ' : '<span class="tag out">partenza</span> ') : '';
-  return `<div class="row"><span class="rp r${esc(m.r)}">${esc(m.r)}</span><span><span class="nm">${esc(m.n)}</span><span class="mt">${tg}${path}${club ? ' · ' + esc(club) : ''}</span></span><span class="rt"><span class="n">${main}</span><span class="mt">${lab}</span></span></div>`;
+  const ln = m.loanTo ? (m.k === 'o' ? ' · era in prestito a ' : ' · in prestito a ') + esc(m.loanTo) : '';
+  return `<div class="row"><span class="rp r${esc(m.r)}">${esc(m.r)}</span><span><span class="nm">${esc(m.n)}</span><span class="mt">${tg}${path}${ln}${club ? ' · ' + esc(club) : ''}</span></span><span class="rt"><span class="n">${main}</span><span class="mt">${lab}</span></span></div>`;
 }
 function renderTrasf() {
   const {list} = transfers();
@@ -469,6 +499,10 @@ function tabMercato(t) {
   const blk = (title, a, tot) => `<div class="grp"><span>${title} · ${a.length}</span><span class="n">${eur(tot)}</span></div><div class="list">${a.length ? a.map(m => trow(m)).join('') : '<div class="empty">Nessun movimento</div>'}</div>`;
   const dd = dep.map(m => m.k === 'x' ? {...m, v: m.got} : m);
   let h = blk('Arrivi', arr, sa) + blk('Partenze', dd.map(m => ({...m, k: m.k === 'x' ? 'x' : 'o'})), sd);
+  const {renew} = transfers();
+  if (renew[t.id].length) h += `<div class="grp"><span>Rinnovi e riacquisti · ${renew[t.id].length}</span></div><div class="list">${renew[t.id].map(p => `<div class="row"><span class="rp r${esc(p.r)}">${esc(p.r)}</span><span><span class="nm">${esc(p.n)}</span><span class="mt">Resta a <b>${esc(t.id)}</b></span></span><span class="rt"><span class="n">${p.v == null ? '–' : eur(p.v)}</span><span class="mt">registrato</span></span></div>`).join('')}</div>`;
+  const {back} = transfers();
+  if (back[t.id].length) h += `<div class="grp"><span>Prestiti terminati · ${back[t.id].length}</span></div><div class="list">${back[t.id].map(p => `<div class="row"><span class="rp r${esc(p.r || '')}">${esc(p.r || '·')}</span><span><span class="nm">${esc(p.n)}</span><span class="mt">Torna a <b>${esc(p.owner)}</b></span></span><span class="rt"><span class="n">${p.v == null ? '–' : eur(p.v)}</span><span class="mt">registrato</span></span></div>`).join('')}</div>`;
   const r = rest[t.id];
   if (r.in.length || r.out.length) h += `<div class="grp"><span>Altri movimenti registrati nel foglio</span></div><div class="list">${[...r.in.map(m => ['Entrata', m]), ...r.out.map(m => ['Uscita', m])].map(([l, m]) => `<div class="row"><span class="rp" style="background:var(--mute)">·</span><span><span class="nm">${esc(m.n)}</span><span class="mt">${l}</span></span><span class="rt"><span class="n">${m.v == null ? '–' : eur(m.v)}</span></span></div>`).join('')}</div>`;
   h += `<div class="kpis" style="grid-template-columns:repeat(2,minmax(0,1fr))"><div class="kpi"><b class="n">${eur(t.totIn)}</b><span>Totale entrate (foglio)</span></div><div class="kpi"><b class="n">${eur(t.totOut)}</b><span>Totale uscite (foglio)</span></div></div>
