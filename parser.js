@@ -79,12 +79,16 @@ const FC = (() => {
     let hr = 0, hc = 0, maxR = 0;
     for (const k of g.keys()) { const [r, c] = k.split(',').map(Number); if (r > maxR) maxR = r; if (!hr && r <= 15 && get(r, c) === 'Cartellino') { hr = r; hc = c; } }
     if (!hr) throw new Error('Struttura non riconosciuta nel foglio ' + id);
-    const nc = hc - 1, pc = hc - 2, players = [], loans = []; let inLoan = false;
+    const nc = hc - 1, pc = hc - 2, players = [], loans = []; let inLoan = false, sec = null;
+    const SEC = {Portieri: 'P', Difensori: 'D', Centrocampisti: 'C', Attaccanti: 'A'};
     for (let r = hr + 1; r <= maxR; r++) {
-      const p = str(get(r, pc)), n = str(get(r, nc));
+      let p = str(get(r, pc)); const n = str(get(r, nc));
       if (n === 'Prestiti') { inLoan = true; continue; }
       if (n === 'Legenda') break;
+      if (n && SEC[n]) { sec = SEC[n]; continue; }
       if (inLoan && n) { loans.push(n); continue; }
+      // ruolo vuoto (giocatore non più nel listone): si usa la sezione, se c'è un cartellino
+      if (!['P','D','C','A'].includes(p) && n && sec && typeof get(r, hc) === 'number') p = sec;
       if (['P','D','C','A'].includes(p) && n)
         players.push({r: p, n, c: num(get(r, hc)), i: num(get(r, hc + 1)), s: year(get(r, hc + 2)), a: num(get(r, hc + 3)), g: num(get(r, hc + 4))});
     }

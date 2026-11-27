@@ -410,15 +410,18 @@ const MOVE_NAMES = {
   'ramos': 'Ramos G.', 'molina': 'Molina N.', 'peres': 'Perez K.', 'jones': 'Jones C.', 'yan couto': 'Couto', 'pessina': 'Pessina Mas.', 'adams': 'Adams A.',
   'goncalves': 'Goncalves P.', 'Ficara:zapata': 'Zapata D.', 'Zaccaro:zapata': 'Zapata D.', 'kverna': 'Kvernadze', 'chaloba': 'Chalobah T.', 'jimenez': 'Jimenez A.',
   'douglas': 'Douglas Luiz', 'yeboah': 'Yeboah J.', 'baschi': 'Baschirotto', 'ghedejmis': 'Ghedjemis', 'kolo': 'Kolo Muani', 'nico': 'Gonzalez N.',
-  'kahiki': 'Kaiki', 'bobceck': 'Bobcek', 'duro': 'Durosinmi', 'fulkrug': 'Füllkrug', 'dominguez': 'Dominguez B.', 'liberali': 'Liberali', 'calo': 'Calò'
+  'kahiki': 'Kaiki', 'bobceck': 'Bobcek', 'duro': 'Durosinmi', 'dominguez': 'Dominguez B.', 'liberali': 'Liberali', 'calo': 'Calò'
 };
 const fullName = (team, n, side) => { const k = norm(n); return MOVE_NAMES[team + ':' + k + '#' + side] || MOVE_NAMES[team + ':' + k] || MOVE_NAMES[k] || n; };
+// rose di chiusura: refusi e nomi scritti in modo diverso dal foglio attuale (stesso giocatore)
+const OLD_FIX = {'muhamerovic': 'Muharemovic', 'durosimni': 'Durosinmi', 'biljow': 'Bijlow', 'gabriel': 'Tiago Gabriel', 'mallen': 'Malen', 'sulemana': 'Sulemana K.', 'taylor': 'Taylor K.'};
+const oldName = n => OLD_FIX[norm(n)] || n;
 let TR = null;
 function transfers() {
   if (TR) return TR;
   for (const t of D.teams) { t.in.forEach(m => m.n = fullName(t.id, m.n, 'in')); t.out.forEach(m => m.n = fullName(t.id, m.n, 'out')); }
   const oldAt = {}, newAt = {};
-  for (const id in OLD) for (const [r, n, c] of OLD[id].p) (oldAt[norm(n)] ??= []).push({id, r, n, c});
+  for (const id in OLD) for (const [r, n0, c] of OLD[id].p) { const n = oldName(n0); (oldAt[norm(n)] ??= []).push({id, r, n, c}); }
   for (const t of D.teams) for (const p of t.players) (newAt[norm(p.n)] ??= []).push({id: t.id, p});
   const usedIn = {}, usedOut = {}, list = [];
   D.teams.forEach(t => { usedIn[t.id] = new Set(); usedOut[t.id] = new Set(); });
@@ -430,7 +433,7 @@ function transfers() {
     let mo = null; if (from && usedOut[from.id]) { const ft = team(from.id); if (ft) mo = matchMove(ft.out, usedOut[from.id], p.n); }
     list.push({k: from ? 'x' : 'n', r: p.r, n: p.n, from: from?.id || null, to: t.id, v: mi ? mi.v : null, got: mo ? mo.v : null, c0: from?.c ?? null, c1: p.c});
   }
-  for (const id in OLD) for (const [r, n, c] of OLD[id].p) {
+  for (const id in OLD) for (const [r, n0, c] of OLD[id].p) { const n = oldName(n0);
     if ((newAt[norm(n)] || []).length) continue;
     const ft = team(id); const mo = ft ? matchMove(ft.out, usedOut[id], n) : null;
     list.push({k: 'o', r, n, from: id, to: null, v: null, got: mo ? mo.v : null, c0: c, c1: null});
