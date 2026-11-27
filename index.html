@@ -133,7 +133,8 @@ nav a[aria-current=page] svg{color:var(--pitch2)}
 .panel ol{padding-left:20px;margin:8px 0 14px;font-size:15px}
 .btn{display:flex;align-items:center;justify-content:center;width:100%;min-height:50px;border-radius:14px;border:0;background:var(--pitch);color:var(--chalk);font-weight:600;margin-top:8px}
 .btn.ghost{background:var(--soft);color:var(--ink)}
-.toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;z-index:10;display:none;max-width:90vw}
+.gerr{margin:14px 0 0;font-size:14px;color:var(--yel);min-height:1em}
+.toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;z-index:30;display:none;max-width:90vw}
 .pal{display:grid;gap:8px}
 .palr{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;min-height:60px;padding:8px 12px;border:1px solid var(--line);border-radius:14px;background:var(--card);text-align:left}
 .palr.first{background:var(--pitch);color:var(--chalk);border-color:var(--pitch)}
@@ -197,6 +198,7 @@ body.locked .gate{display:grid}body.locked main,body.locked nav{display:none}
   <h2>Fantacatt 26/27</h2>
   <p id="g-msg">Caricamento…</p>
   <div id="g-act"></div>
+  <p id="g-err" class="gerr" role="alert"></p>
 </div></div>
 
 <main>
@@ -578,7 +580,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('#more')) { st.limit += 60; renderPlayers(); return; }
   if (e.target.closest('#fav')) { st.fav = st.fav === st.team ? null : st.team; saveUi(); renderTeam(); toast(st.fav ? st.fav + ' è la tua squadra: l\'app si aprirà qui' : 'Squadra preferita rimossa'); return; }
   if (e.target.closest('#upd') || e.target.closest('#g-open')) { openPanel(); return; }
-  if (e.target.closest('#g-login')) { BE.signIn().catch(err => toast('Accesso non riuscito: ' + (err.code || err.message))); return; }
+  if (e.target.closest('#g-login')) { $('#g-err').textContent = ''; BE.signIn().catch(err => { console.error(err); $('#g-err').textContent = authMsg(err); }); return; }
   if (e.target.closest('#logout') || e.target.closest('#g-logout')) { $('#sheet').classList.remove('on'); BE.signOut(); return; }
   const ud = e.target.closest('[data-udel]');
   if (ud) { const em = ud.dataset.udel; if (ud.dataset.sure) { BE.delUser(em).then(renderUsers).catch(err => toast('Errore: ' + err.message)); } else { ud.dataset.sure = '1'; ud.textContent = 'Conferma'; } return; }
@@ -636,6 +638,18 @@ function openPanel() {
   $('#old-l').textContent = LEAGUE.old ? LEAGUE.old.label + ' · serve per i trasferimenti' : 'Serve per calcolare i trasferimenti.';
   $('#sheet').classList.add('on'); renderUsers();
 }
+function authMsg(err) {
+  const c = err && err.code || '';
+  const M = {
+    'auth/unauthorized-domain': 'Dominio non autorizzato. In Firebase → Authentication → Impostazioni → Domini autorizzati aggiungi ' + location.hostname,
+    'auth/operation-not-allowed': "Accesso con Google non attivo. In Firebase → Authentication → Metodo di accesso abilita Google.",
+    'auth/configuration-not-found': "Authentication non è ancora attivo nel progetto Firebase: aprilo e premi Inizia, poi abilita Google.",
+    'auth/popup-blocked': 'Il browser ha bloccato la finestra di accesso: consenti i popup per questo sito e riprova.',
+    'auth/network-request-failed': 'Problema di connessione: riprova.',
+    'auth/invalid-api-key': 'Chiave Firebase non valida in config.js.'
+  };
+  return 'Accesso non riuscito: ' + (M[c] || (c || err.message || 'errore sconosciuto'));
+}
 function gate(state) {
   document.body.classList.toggle('locked', state !== 'ok');
   $('#upd').hidden = !me;
@@ -673,6 +687,7 @@ function start(be) {
   });
 }
 window.FCApp = {start};
+setTimeout(() => { if (!BE) { $('#g-msg').textContent = 'Impossibile caricare il collegamento a Firebase. Controlla la connessione e ricarica la pagina.'; } }, 12000);
 if (window.FCBackend) start(window.FCBackend); else window.addEventListener('fc-backend', () => start(window.FCBackend), {once: true});
 window.addEventListener('hashchange', route);
 }
